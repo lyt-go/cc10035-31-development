@@ -92,7 +92,30 @@ def create_entry(module: str, payload: EntryPayload) -> ActionResult:
 
 
 @router.post("/{module}/{entry_id}/actions", response_model=ActionResult)
-def run_action(module: str, entry_id: int, payload: ActionPayload) -> ActionResult:
+async def run_action(module: str, entry_id: int, request: Request,
+                     payload: ActionPayload) -> ActionResult:
     service = require_service(module)
-    entry, message = service.run_action(entry_id, payload.action.strip())
-    return ActionResult(ok=entry is not None, message=message, entry=entry)
+    extra: dict[str, Any] = dict(request.query_params)
+    extra.update(payload.model_extra or {})
+    # 兼容把业务参数放在 params/values/data 嵌套对象里的调用。
+    for nested_key in ("params", "values", "data"):
+        nested = extra.get(nested_key)
+        if isinstance(nested, dict):
+            extra.update(nested)
+    if payload.remark:
+        # 允许把 JSON 参数或阈值表达式塞进 remark 透传给领域服务。
+        extra.setdefault("remark", payload.remark)
+        text = payload.remark.strip()
+        if text.startswith("{"):
+            import json
+            try:
+                extra.update(json.loads(text))
+            except ValueError:
+                pass
+        else:
+            extra.setdefault("condition", text)
+    entry, message = service.run_action(entry_id, payload.action.strip(), extra)
+    ok = entry is not None
+    if ok and isinstance(entry, dict) and "ok" in entry:
+        ok = bool(entry.get("ok"))
+    return ActionResult(ok=ok, message=message, entry=entry)

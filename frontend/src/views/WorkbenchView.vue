@@ -15,6 +15,12 @@
       </div>
     </header>
 
+    <AlarmRecheckPanel
+      v-if="meta.key === 'alarm_trigger'"
+      ref="recheckPanelRef"
+      :initial-recheck-id="initialRecheckId"
+    />
+
     <div class="stat-row">
       <article v-for="item in stats" :key="item.label" class="stat-card">
         <span class="stat-label">{{ item.label }}</span>
@@ -50,6 +56,16 @@
           <td v-for="column in meta.fields" :key="column">{{ row[column] ?? '—' }}</td>
           <td>{{ row.status }}</td>
           <td class="row-actions">
+            <button
+              v-if="meta.key === 'alarm_trigger'"
+              class="link"
+              type="button"
+              :data-testid="`action-${row.id}-发起复验`"
+              :data-row-recheck="String(row.id)"
+              @click="startRecheck(row)"
+            >
+              复验
+            </button>
             <button
               v-for="action in meta.actions"
               :key="action"
@@ -104,9 +120,11 @@ import {
   runAction as applyAction,
 } from '@/api/backend-service'
 import type { EntryRow } from '@/data/types'
+import AlarmRecheckPanel from '@/components/AlarmRecheckPanel.vue'
 
-const props = defineProps<{ moduleKey: string }>()
+const props = defineProps<{ moduleKey: string; initialRecheckId?: string }>()
 const meta = moduleMeta(props.moduleKey)
+const recheckPanelRef = ref<InstanceType<typeof AlarmRecheckPanel> | null>(null)
 const rows = ref<EntryRow[]>([])
 const total = ref(0)
 const errorMessage = ref('')
@@ -167,6 +185,11 @@ async function submitCreate() {
 
 async function runAction(action: string, row: EntryRow) {
   errorMessage.value = ''
+  // 复验类动作走页面内的复验结论单流程，而不是通用状态流转。
+  if (meta.key === 'alarm_trigger' && (action.includes('复验') || action.includes('参照'))) {
+    startRecheck(row)
+    return
+  }
   try {
     const result = await applyAction(meta.key, Number(row.id), action)
     if (!result.ok) throw new Error(result.message)
@@ -174,6 +197,11 @@ async function runAction(action: string, row: EntryRow) {
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '操作失败'
   }
+}
+
+function startRecheck(row: EntryRow) {
+  // 复验是页面内的结论单流程：交给面板定位事件并打开查询/详情。
+  void recheckPanelRef.value?.startForRule(row as unknown as Record<string, unknown>)
 }
 
 async function reload() {

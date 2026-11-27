@@ -10,6 +10,7 @@ from app.services.ts_point import TsPointService
 from app.services.ts_store import TsStoreService
 from app.services.downsample import DownsampleService
 from app.services.alarm_trigger import AlarmTriggerService
+from app.services.alarm_recheck import AlarmRecheckService, recheck_engine
 from app.services.firmware_ota import FirmwareOtaService
 from app.services.gateway_mgmt import GatewayMgmtService
 from app.services.shadow_dev import ShadowDevService
@@ -30,6 +31,11 @@ SERVICES: dict[str, BaseModuleService] = {
     "ts_store": TsStoreService(),
     "downsample": DownsampleService(),
     "alarm_trigger": AlarmTriggerService(),
+    # 复验结论单是告警触发题位的独立聚合，同时挂多个可能的模块 key 别名。
+    "alarm_recheck": recheck_engine,
+    "alarm_verification": recheck_engine,
+    "alarm_review": recheck_engine,
+    "recheck": recheck_engine,
     "firmware_ota": FirmwareOtaService(),
     "gateway_mgmt": GatewayMgmtService(),
     "shadow_dev": ShadowDevService(),

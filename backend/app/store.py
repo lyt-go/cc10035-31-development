@@ -18,6 +18,10 @@ class Store:
     def module_names(self) -> list[str]:
         return sorted(self._tables)
 
+    def business_module_names(self) -> list[str]:
+        """对外的 18 个业务模块；复验等特性表不计入模块清单/概览。"""
+        return [name for name in self.module_names() if name in SEED_ROWS]
+
     def rows(self, module: str) -> list[dict[str, Any]]:
         return self._tables.setdefault(module, [])
 
@@ -29,7 +33,7 @@ class Store:
 
     def overview(self) -> dict[str, object]:
         modules: list[dict[str, object]] = []
-        for name in self.module_names():
+        for name in self.business_module_names():
             rows = self.rows(name)
             modules.append({
                 "name": name,

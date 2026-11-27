@@ -26,6 +26,17 @@ export default defineConfig({
       },
     },
   },
+  preview: {
+    host: '127.0.0.1',
+    port: 4173,
+    strictPort: false,
+    proxy: {
+      '/api': {
+        target: proxyTarget,
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,

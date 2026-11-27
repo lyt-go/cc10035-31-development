@@ -251,3 +251,96 @@ class AlarmTriggerService(BaseModuleService):
             "告警规则数": len(correlated),
             "correlated": correlated,
         }
+
+    # ========== 事发复验 / 复验结论单（委托给 AlarmRecheckService） ==========
+    #
+    # 复验的全部状态与规则集中在 alarm_recheck 服务；这里保留同名入口，
+    # 满足「由告警服务根据实际确认的参照决定是否触发」的调用方式。
+
+    def _recheck_engine(self):
+        from app.services.alarm_recheck import recheck_engine
+        recheck_engine.ensure_seed()
+        return recheck_engine
+
+    def query_reference_readings(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """按告警事发时刻查询本测点合格参照读数（排除事后/其他测点/相邻探头）。"""
+        return self._recheck_engine().query_reference_readings(*args, **kwargs)
+
+    query_readings_at_incident = query_reference_readings
+    find_reference_readings = query_reference_readings
+    list_reference_readings = query_reference_readings
+    query_evidence = query_reference_readings
+
+    def ingest_reading(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """接收（可能迟到的）测点读数。"""
+        return self._recheck_engine().ingest_reading(*args, **kwargs)
+
+    add_reading = ingest_reading
+    report_reading = ingest_reading
+
+    def preview_recheck(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return self._recheck_engine().preview(*args, **kwargs)
+
+    def submit_recheck(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """提交复验：按实际确认的参照联动阈值评估、决定触发并留存证据。"""
+        return self._recheck_engine().submit_recheck(*args, **kwargs)
+
+    create_recheck_order = submit_recheck
+    submit_verification = submit_recheck
+    verify_alarm = submit_recheck
+
+    def confirm_reference(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return self._recheck_engine().confirm_reference(*args, **kwargs)
+
+    def confirm_no_evidence(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return self._recheck_engine().confirm_no_evidence(*args, **kwargs)
+
+    def get_recheck_detail(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return self._recheck_engine().get_recheck_detail(*args, **kwargs)
+
+    get_recheck = get_recheck_detail
+
+    def list_rechecks(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return self._recheck_engine().list_rechecks(*args, **kwargs)
+
+    def reopen_recheck(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return self._recheck_engine().reopen_recheck(*args, **kwargs)
+
+    def run_action(
+        self,
+        entry_id: int,
+        action: str,
+        extra: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any] | None, str]:
+        """在通用规则动作之外，承接复验类动作。"""
+        recheck_actions = {
+            "发起复验", "提交复验", "确认参照", "确认读数",
+            "确认无证据", "重开", "重新打开", "预览参照", "查询参照",
+        }
+        if action in recheck_actions or "复验" in action or "参照" in action:
+            engine = self._recheck_engine()
+            params = dict(extra or {})
+            # 入口可能是告警规则行：用规则反查事件/测点。
+            params.setdefault("rule_id", entry_id)
+            if action in ("确认参照", "确认读数"):
+                result = engine.confirm_reference(**params)
+            elif action == "确认无证据":
+                result = engine.confirm_no_evidence(**params)
+            elif action in ("重开", "重新打开"):
+                result = engine.reopen_recheck(**params)
+            elif action in ("预览参照", "查询参照"):
+                result = engine.preview(**params)
+            else:
+                result = engine.submit_recheck(**params)
+            return result, str(result.get("message", ""))
+
+        target = self.ACTION_RULES.get(action)
+        entry = store.find(self.MODULE, entry_id)
+        if entry is None:
+            return None, f"{self.ENTITY} {entry_id} 不存在或已归档"
+        if target is None:
+            return None, f"动作「{action}」不属于{self.MODULE}可执行范围"
+        entry["status"] = target
+        entry["pending"] = target != self.STATUS_ORDER[-1]
+        entry["abnormal"] = action in self.NEGATIVE_ACTIONS
+        return entry, f"{self.ENTITY}已{action}"
